@@ -1,4 +1,4 @@
-from pymodbus.client import BaseModbusClient
+from pymodbus.client.sync import BaseModbusClient
 from pymodbus.transaction import ModbusSocketFramer, ModbusBinaryFramer
 from pymodbus.factory import ClientDecoder
 from pymodbus.exceptions import ConnectionException
@@ -26,7 +26,7 @@ class SungrowModbusWebClient(BaseModbusClient):
     # TD_202103_Sungrow Inverter and Compatible Accessories_V1.0: SG5.0/7.0/10/15/20RT
     # https://github.com/bohdan-s/Sungrow-Inverter/blob/main/Install%20Guides/TD_202103_Sungrow%20Inverter%20and%20Compatible%20Accessories_V1.0.pdf
 
-    def __init__(self, host='127.0.0.1', port=8082,
+    def __init__(self, host='127.0.0.1', port=8082, username='user', passwd='pw1111',
         framer=ModbusSocketFramer, **kwargs):
         """ Initialize a client instance
         :param host: The host to connect to (default 127.0.0.1)
@@ -38,7 +38,9 @@ class SungrowModbusWebClient(BaseModbusClient):
 
         self.dev_host = host
         self.ws_port = port
-        self.timeout = kwargs.get('timeout',  '5')
+        self.username = username
+        self.passwd = passwd
+        self.timeout = kwargs.get('timeout',  5)
         self.ws_socket = None
         BaseModbusClient.__init__(self, framer(ClientDecoder(), self), **kwargs)
         
@@ -83,6 +85,28 @@ class SungrowModbusWebClient(BaseModbusClient):
             self.ws_token = ""
             raise ConnectionException(f"Connection Failed {payload_dict['result_msg']}")
         
+        # Through experimentation on SH50RS and SG50RS, have found subsequent queries (devicelist etc) do not work without authentication
+        logging.debug("Authenticating to the device")
+        self.ws_socket.send(json.dumps({ "lang": "en_us", "token": self.ws_token, "service": "login", "username": self.username, "passwd": self.passwd}))
+        try:
+            result =  self.ws_socket.recv()
+        except Exception as err:
+            result =  ""
+            raise ConnectionException(f"Websocket error: {str(err)}")
+
+        try:
+            payload_dict = json.loads(result)
+            logging.debug(payload_dict)
+        except Exception as err:
+            raise ConnectionException(f"Data error: {str(result)}\n\t\t\t\t{str(err)}")
+
+        if payload_dict['result_msg'] == 'success':
+            self.ws_token = payload_dict['result_data']['token']
+            logging.info("Login token Retrieved: " + self.ws_token)
+        else:
+            logging.error("Failed to obtain login token")
+            raise ConnectionException("Failed to obtain login token")
+
         logging.debug("Requesting Device Information")
         self.ws_socket.send(json.dumps({ "lang": "en_us", "token": self.ws_token, "service": "devicelist", "type": "0","is_check_token": "0" }))
         #self.ws_socket.send(json.dumps({ "lang": "en_us", "token": self.ws_token, "service": "runtime" }))
