@@ -104,17 +104,13 @@ class SungrowModbusWebClient(BaseModbusClient):
 
         try:
             payload_dict = json.loads(result)
-            if payload_dict['result_msg'] == 'success' and "token" in payload_dict['result_data']:
-              self.ws_token = payload_dict['result_data']['token']
-            logging.info("Updated Token Retrieved: " + self.ws_token)
-
             logging.debug(payload_dict)
         except Exception as err:
             raise ConnectionException(f"Data error: {str(result)}\n\t\t\t\t{str(err)}")
 
-        if payload_dict['result_msg'] == 'success':
+        if payload_dict['result_msg'] == 'success' and 'token' in payload_dict['result_data']:
             self.ws_token = payload_dict['result_data']['token']
-            logging.info("Login token Retrieved: " + self.ws_token)
+            logging.info("Token updates in login: " + self.ws_token)
         else:
             logging.error("Failed to obtain login token")
             raise ConnectionException("Failed to obtain login token")
