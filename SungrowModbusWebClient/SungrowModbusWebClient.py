@@ -9,6 +9,7 @@ import requests
 import logging
 import json
 import time
+import ssl
 
 # --------------------------------------------------------------------------- #
 # Modbus Web Client Transport Implementation for Sungrow WiNet-S Dongle
@@ -43,8 +44,15 @@ class SungrowModbusWebClient(BaseModbusClient):
         self.timeout = kwargs.get('timeout',  5)
         self.ws_socket = None
         BaseModbusClient.__init__(self, framer(ClientDecoder(), self), **kwargs)
+
+        protocol="ws"
+        if (str(self.ws_port) == "443"):
+          protocol = "wss"
+          logging.debug("Secure connection detected.")
+        else:
+          logging.debug("Connection using port "+str(self.ws_port))
         
-        self.ws_endpoint = "ws://" + str(self.dev_host) + ":" + str(self.ws_port) + "/ws/home/overview"
+        self.ws_endpoint = str(protocol) + "://" + str(self.dev_host) + ":" + str(self.ws_port) + "/ws/home/overview"
         self.ws_token = ""
         self.dev_type = ""
         self.dev_code = ""
@@ -58,7 +66,7 @@ class SungrowModbusWebClient(BaseModbusClient):
             return True
 
         try:
-            self.ws_socket = create_connection(self.ws_endpoint,timeout=self.timeout)
+            self.ws_socket = create_connection(self.ws_endpoint,timeout=self.timeout,sslopt={"cert_reqs": ssl.CERT_NONE})
         except Exception as err:
             logging.debug(f"Connection to websocket server failed: {self.ws_endpoint}, Message: {err}")
             return None
@@ -96,6 +104,10 @@ class SungrowModbusWebClient(BaseModbusClient):
 
         try:
             payload_dict = json.loads(result)
+            if payload_dict['result_msg'] == 'success' and "token" in payload_dict['result_data']:
+              self.ws_token = payload_dict['result_data']['token']
+            logging.info("Updated Token Retrieved: " + self.ws_token)
+
             logging.debug(payload_dict)
         except Exception as err:
             raise ConnectionException(f"Data error: {str(result)}\n\t\t\t\t{str(err)}")
@@ -118,8 +130,10 @@ class SungrowModbusWebClient(BaseModbusClient):
             # Device Type, 21 = PV Inverter, 35 = Hybrid Inverter
             self.dev_type = payload_dict['result_data']['list'][0]['dev_type']      
             # Device model, see Appendix 6
-            self.dev_code = payload_dict['result_data']['list'][0]['dev_code']
-            #self.dev_code = next(s for s in self.model_codes if self.model_codes[s] == payload_dict['result_data']['list'][0]['dev_model'])
+            if 'dev_code' in payload_dict['result_data']['list'][0]:
+              self.dev_code = payload_dict['result_data']['list'][0]['dev_code']
+            elif 'dev_model' in payload_dict['result_data']['list'][0].values():
+              self.dev_code = next(s for s in self.model_codes if self.model_codes[s] == payload_dict['result_data']['list'][0]['dev_model'])
             logging.debug("Retrieved: dev_type = " + str(self.dev_type) + ", dev_code = " + str(self.dev_code))
         else:
             logging.warning("Connection Failed", payload_dict['result_msg'] )
@@ -156,9 +170,12 @@ class SungrowModbusWebClient(BaseModbusClient):
         self.payload_modbus = ""
         
         logging.debug("param_type: " + str(param_type) + ", start_address: " + str(address) + ", count: " + str(count) + ", dev_id: " +str(dev_id))       
-        logging.debug(f'Calling: http://{str(self.dev_host)}/device/getParam?dev_id={dev_id}&dev_type={str(self.dev_type)}&dev_code={str(self.dev_code)}&type=3&param_addr={address}&param_num={count}&param_type={str(param_type)}&token={self.ws_token}&lang=en_us&time123456={str(int(time.time()))}')
+        proto="http"
+        if str(self.ws_port) == "443":
+            proto="https"
+        logging.debug(f'Calling: {proto}://{str(self.dev_host)}/device/getParam?dev_id={dev_id}&dev_type={str(self.dev_type)}&dev_code={str(self.dev_code)}&type=3&param_addr={address}&param_num={count}&param_type={str(param_type)}&token={self.ws_token}&lang=en_us&time123456={str(int(time.time()))}')
         try:
-            r =requests.get(f'http://{str(self.dev_host)}/device/getParam?dev_id={dev_id}&dev_type={str(self.dev_type)}&dev_code={str(self.dev_code)}&type=3&param_addr={address}&param_num={count}&param_type={str(param_type)}&token={self.ws_token}&lang=en_us&time123456={str(int(time.time()))}', timeout=self.timeout)
+            r =requests.get(f'{proto}://{str(self.dev_host)}/device/getParam?dev_id={dev_id}&dev_type={str(self.dev_type)}&dev_code={str(self.dev_code)}&type=3&param_addr={address}&param_num={count}&param_type={str(param_type)}&token={self.ws_token}&lang=en_us&time123456={str(int(time.time()))}', timeout=self.timeout, verify=False)
         except Exception as err:
             raise ConnectionException(f"HTTP Request failed: {str(err)}")
         logging.debug("HTTP Status code " + str(r.status_code))
@@ -240,3 +257,4 @@ class SungrowModbusWebClient(BaseModbusClient):
             "<{} at {} socket={self.ws_socket}, ipaddr={self.dev_host}, "
             "port={self.ws_port}, timeout={self.timeout}>"
         ).format(self.__class__.__name__, hex(id(self)), self=self)
+
