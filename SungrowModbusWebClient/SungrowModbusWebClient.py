@@ -132,7 +132,7 @@ class SungrowModbusWebClient(BaseModbusClient):
             # Device model, see Appendix 6
             if 'dev_code' in payload_dict['result_data']['list'][0]:
               self.dev_code = payload_dict['result_data']['list'][0]['dev_code']
-            elif 'dev_model' in payload_dict['result_data']['list'][0].values():
+            elif 'dev_model' in payload_dict['result_data']['list'][0]:
               self.dev_code = next(s for s in self.model_codes if self.model_codes[s] == payload_dict['result_data']['list'][0]['dev_model'])
             logging.debug("Retrieved: dev_type = " + str(self.dev_type) + ", dev_code = " + str(self.dev_code))
         else:
